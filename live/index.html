@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wayline live ride</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #111; color: #f2f2f2; }
+  #map { position: absolute; inset: 0; }
+  #bar { position: absolute; left: 12px; right: 12px; bottom: 16px; z-index: 1000; background: rgba(17,17,17,.92);
+         border-radius: 14px; padding: 12px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+  #who { font-size: 18px; font-weight: 800; color: #f5b014; }
+  #when { font-size: 14px; color: #bbb; margin-top: 2px; }
+  #brand { position: absolute; top: 12px; left: 12px; z-index: 1000; background: rgba(17,17,17,.85); padding: 6px 10px;
+           border-radius: 10px; font-size: 13px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="brand">Wayline</div>
+<div id="bar"><div id="who">Loading…</div><div id="when"></div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const SUPABASE_URL = 'https://vqtwjhzamqctgneibmws.supabase.co';
+  const KEY = 'sb_publishable__-DIDBR0wSSNQ_QA1aXOeQ_r5-fwZKr';
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const map = L.map('map', { zoomControl: false }).setView([54.5, -2.5], 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  let dot = null, trail = L.polyline([], { color: '#f5b014', weight: 4, opacity: .8 }).addTo(map), first = true;
+  const who = document.getElementById('who'), when = document.getElementById('when');
+
+  function ago(ms) {
+    const m = Math.round(ms / 60000);
+    return m < 1 ? 'just now' : m === 1 ? '1 minute ago' : m < 60 ? m + ' minutes ago' : Math.round(m / 60) + ' hours ago';
+  }
+  async function load() {
+    if (!token) { who.textContent = 'This link is missing its code.'; return; }
+    try {
+      const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/get_live_share', {
+        method: 'POST', headers: { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ t: token })
+      });
+      const rows = await r.json();
+      const s = Array.isArray(rows) ? rows[0] : null;
+      if (!s) { who.textContent = 'This live link has ended.'; when.textContent = 'Links stop after 12 hours or when the rider stops sharing.'; return; }
+      who.textContent = s.name + ' is out riding';
+      if (s.lat == null) { when.textContent = 'Waiting for the first position…'; return; }
+      const p = [s.lat, s.lon];
+      const age = Date.now() - Date.parse(s.updated_at);
+      when.textContent = 'Last seen ' + ago(age) + (age > 10 * 60000 ? ' (they may have stopped or lost signal)' : '');
+      if (!dot) dot = L.circleMarker(p, { radius: 9, color: '#fff', weight: 3, fillColor: '#f5b014', fillOpacity: 1 }).addTo(map);
+      else dot.setLatLng(p);
+      const t = trail.getLatLngs(); const last = t[t.length - 1];
+      if (!last || last.lat !== p[0] || last.lng !== p[1]) trail.addLatLng(p);
+      if (first) { map.setView(p, 13); first = false; } else if (!map.getBounds().contains(p)) map.panTo(p);
+    } catch (e) { when.textContent = 'Reconnecting…'; }
+  }
+  load(); setInterval(load, 15000);
+</script>
+</body>
+</html>
